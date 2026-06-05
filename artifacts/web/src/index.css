@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-matte-black: #0A0A0B;
+  --color-graphite: #1A1A1D;
+  --color-white: #FAFAFA;
+
+  /* Scoped color values mapped to custom properties */
+  --color-brand-amber: var(--brand-amber-val);
+  --color-hud-cyan: var(--hud-cyan-val);
+
+  /* Tier Accents */
+  --color-tier-d: #71717A;
+  --color-tier-c: #0EA5E9;
+  --color-tier-b: #10B981;
+  --color-tier-a: #F5A623;
+  --color-tier-s: #F97316;
+  --color-tier-ss: #F43F5E;
+  --color-tier-sss: #8B5CF6;
+
+  /* Fonts */
+  --font-sans: "Geist", "Outfit", sans-serif;
+  --font-mono: "Geist Mono", monospace;
+}
+
+/* Scopes */
+.amber-scope, [data-amber], [data-amber-scope] {
+  --brand-amber-val: #F5A623;
+}
+
+.hud-scope, [data-hud], [data-hud-scope] {
+  --hud-cyan-val: #5EEAD4;
+}
+
+/* Custom visual styles and animations */
+@layer base {
+  body {
+    background-color: #0A0A0B;
+    color: #FAFAFA;
+    font-family: "Geist", "Outfit", sans-serif;
+  }
+}
+
+/* Gold Gradient text for LIMITLESS tier */
+.limitless-text {
+  background: linear-gradient(135deg, #FFF6E0 0%, #FFE082 45%, #D4AF37 70%, #FFE082 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 3s ease infinite;
+}
+
+/* Gold Border for LIMITLESS badge */
+.limitless-border {
+  border-image: linear-gradient(135deg, #FFF6E0 0%, #FFE082 45%, #D4AF37 70%, #FFE082 100%) 1;
+  animation: shine-border 3s ease infinite;
+}
+
+@keyframes shine {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}

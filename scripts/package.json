@@ -4,11 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "hello": "tsx ./src/hello.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bundle-scan": "tsx src/bundle-scan.ts",
+    "bundle-scan:web": "tsx src/bundle-scan.ts --dir ../artifacts/web/dist",
+    "bundle-scan:share-card": "tsx src/bundle-scan.ts --dir ../artifacts/share-card/dist"
   },
   "devDependencies": {
+    "@types/eslint": "^9.6.1",
     "@types/node": "catalog:",
+    "eslint": "^10.4.1",
     "tsx": "catalog:"
   }
 }

@@ -11,6 +11,30 @@
     },
     {
       "path": "./lib/api-zod"
+    },
+    {
+      "path": "./lib/description-sanitizer"
+    },
+    {
+      "path": "./lib/images"
+    },
+    {
+      "path": "./lib/moderation"
+    },
+    {
+      "path": "./lib/qr"
+    },
+    {
+      "path": "./lib/ratelimit"
+    },
+    {
+      "path": "./lib/design-tokens"
+    },
+    {
+      "path": "./lib/vision"
+    },
+    {
+      "path": "./lib/reveal-controller"
     }
   ]
 }

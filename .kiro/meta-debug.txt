@@ -1,0 +1,11 @@
+--ATTRS--
+Archive
+--ACL--
+C:\Users\Venkatesh\.kiro\tasks\6e1f0509980b8cb8\powerlvl-v1.meta.json NT AUTHORITY\SYSTEM:(I)(F)
+                                                                      BUILTIN\Administrators:(I)(F)
+                                                                      DESKTOP-SRINIVA\Venkatesh:(I)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+
+--LOCK CHECK--
+NOT_LOCKED

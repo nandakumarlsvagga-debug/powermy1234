@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "crons": [
+    {
+      "path": "/api/internal/jobs/anonymous-scan-purge",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/internal/jobs/pending-cleanup-reconciler",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

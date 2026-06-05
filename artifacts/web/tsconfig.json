@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"],
+  "references": [
+    { "path": "../../lib/design-tokens" },
+    { "path": "../../lib/api-client-react" },
+    { "path": "../../lib/api-zod" },
+    { "path": "../../lib/reveal-controller" },
+    { "path": "../../lib/qr" }
+  ]
+}

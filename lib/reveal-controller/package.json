@@ -1,0 +1,20 @@
+{
+  "name": "@workspace/reveal-controller",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/design-tokens": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "fast-check": "^3.23.2",
+    "vitest": "^2.1.9"
+  }
+}

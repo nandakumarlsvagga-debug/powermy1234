@@ -1,0 +1,76 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "artifacts/web/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "artifacts/api-server/src/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "artifacts/share-card/src/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/share-card/(.*)",
+      "dest": "artifacts/share-card/src/index.ts"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "artifacts/api-server/src/index.ts"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "artifacts/web/dist/assets/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "artifacts/web/dist/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/internal/jobs/anonymous-scan-purge",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/internal/jobs/pending-cleanup-reconciler",
+      "schedule": "*/10 * * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/share-card/(.*)\\.png",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, s-maxage=86400, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
+}

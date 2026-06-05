@@ -1,20 +1,15 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
+// POWERLVL v1 schema barrel.
 //
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
+// One file per table; all tables wired through this barrel so callers
+// can `import { scansTable } from '@workspace/db'` and Drizzle picks up
+// the full schema graph for relations and migrations.
 
-export {}
+export * from "./enums";
+export * from "./members";
+export * from "./scans";
+export * from "./likes";
+export * from "./rate-limit-buckets";
+export * from "./daily-scan-counts";
+export * from "./anon-sessions";
+export * from "./pending-cleanups";
+export * from "./account-deletions";

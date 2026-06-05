@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": ["dom", "es2022"],
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../lib/db" },
+    { "path": "../../lib/design-tokens" },
+    { "path": "../../lib/qr" }
+  ]
+}

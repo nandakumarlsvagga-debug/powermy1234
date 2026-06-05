@@ -1,0 +1,24 @@
+{
+  "name": "@workspace/ratelimit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.0.0",
+    "@types/node": "catalog:",
+    "@types/pg": "^8.18.0",
+    "testcontainers": "^12.0.0",
+    "vitest": "^2.1.9"
+  }
+}

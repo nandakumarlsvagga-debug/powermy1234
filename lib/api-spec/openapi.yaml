@@ -3,20 +3,32 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: POWERLVL v1 API contract — anonymous and member scans, public feed, leaderboards, profiles, and account.
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: anon
+    description: Anonymous session management
+  - name: scans
+    description: Scan creation, retrieval, share cards, claim, and like
+  - name: feed
+    description: Public chronological feed
+  - name: leaderboards
+    description: Ranked Scans across windows and Categories
+  - name: profiles
+    description: Public Member profiles
+  - name: me
+    description: Current Member account
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
+      description: Returns server health status.
       responses:
         "200":
           description: Healthy
@@ -24,7 +36,501 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /anon/session:
+    post:
+      operationId: createAnonSession
+      tags: [anon]
+      summary: Create or refresh the anonymous session
+      description: |
+        Creates or refreshes the anonymous session cookie (`plvl_anon`) using the
+        visitor fingerprint and IANA timezone. Returns the session id and the
+        current daily-quota state for the visitor's local day.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAnonSessionRequest"
+      responses:
+        "200":
+          description: Anonymous session created or refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAnonSessionResponse"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /scans:
+    post:
+      operationId: createScan
+      tags: [scans]
+      summary: Create a Scan
+      description: |
+        Multipart upload that runs the full Scanner pipeline server-side:
+        validation, moderation, image processing, Vision Model analysis,
+        slop detection, scoring, anomaly draw, and persistence. Available to
+        both Anonymous Users (within their daily quota) and Members.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateScanRequest"
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/heic, image/webp
+              category:
+                contentType: text/plain
+              description:
+                contentType: text/plain
+              localDate:
+                contentType: text/plain
+              localTz:
+                contentType: text/plain
+      responses:
+        "200":
+          description: Scan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateScanResponse"
+        "400":
+          description: Invalid input, image rejected, or moderation flagged
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ApiErrorInvalidInput"
+                  - $ref: "#/components/schemas/ApiErrorImageInvalid"
+                  - $ref: "#/components/schemas/ApiErrorModerationRejected"
+                discriminator:
+                  propertyName: code
+                  mapping:
+                    INVALID_INPUT: "#/components/schemas/ApiErrorInvalidInput"
+                    IMAGE_INVALID: "#/components/schemas/ApiErrorImageInvalid"
+                    MODERATION_REJECTED: "#/components/schemas/ApiErrorModerationRejected"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          description: Rate limit or daily limit reached
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ApiErrorRateLimited"
+                  - $ref: "#/components/schemas/ApiErrorDailyLimitReached"
+                discriminator:
+                  propertyName: code
+                  mapping:
+                    RATE_LIMITED: "#/components/schemas/ApiErrorRateLimited"
+                    DAILY_LIMIT_REACHED: "#/components/schemas/ApiErrorDailyLimitReached"
+        "503":
+          description: Vision or moderation service unavailable
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ApiErrorModerationUnavailable"
+                  - $ref: "#/components/schemas/ApiErrorVisionUnavailable"
+                discriminator:
+                  propertyName: code
+                  mapping:
+                    MODERATION_UNAVAILABLE: "#/components/schemas/ApiErrorModerationUnavailable"
+                    VISION_UNAVAILABLE: "#/components/schemas/ApiErrorVisionUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /scans/{id}:
+    get:
+      operationId: getScan
+      tags: [scans]
+      summary: Get a Scan
+      description: |
+        Returns the public projection of a Scan. Used by the permalink page
+        and Feed entry detail. Includes signed image URLs valid for ≤ 24 h
+        and the absolute permalink plus the three share-card URLs.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanPublic"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /scans/{id}/share-card.png:
+    get:
+      operationId: getScanShareCard
+      tags: [scans]
+      summary: Get a Scan's share-card PNG
+      description: |
+        Renders the share card for the requested Scan at the requested aspect
+        ratio. Delegates to `artifacts/share-card`. Cached at the CDN with
+        `public, max-age=86400, s-maxage=86400, immutable`.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+        - name: ratio
+          in: query
+          required: true
+          description: Share-card aspect ratio
+          schema:
+            $ref: "#/components/schemas/ShareCardRatio"
+      responses:
+        "200":
+          description: Rendered share card
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: "public, max-age=86400, s-maxage=86400, immutable"
+            ETag:
+              schema:
+                type: string
+              description: sha256(scanId + ratio + version)
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Share-card renderer temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorInternal"
+
+  /scans/{id}/claim:
+    post:
+      operationId: claimScan
+      tags: [scans]
+      summary: Claim an unclaimed Scan
+      description: |
+        Soft-auth claim. Requires an authenticated Member. Verifies the Scan
+        has `member_id IS NULL` and that its `anon_session_id` matches the
+        caller's `plvl_anon` cookie. Idempotent for a Scan already owned by
+        the caller; returns 403 when owned by another Member.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan claimed (or already owned by caller)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimScanResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /scans/{id}/like:
+    post:
+      operationId: toggleScanLike
+      tags: [scans]
+      summary: Toggle a like for a Scan
+      description: |
+        Toggles the calling visitor's like for a Scan. Authenticated Members
+        are keyed by `member_id`; Anonymous Users are keyed by their
+        `plvl_anon` cookie. Returns the new liked-state and the per-Scan
+        cached aggregate like count.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Like toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToggleLikeResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /feed:
+    get:
+      operationId: getFeed
+      tags: [feed]
+      summary: Get the public Feed
+      description: |
+        Cursor-paginated public Feed of Scans ordered by `createdAt DESC`.
+        Includes both claimed and unclaimed Scans. `Cache-Control: private,
+        max-age=0, must-revalidate`.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: ISO 8601 timestamp; entries strictly older than this are returned
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size (default 20, max 20)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+      responses:
+        "200":
+          description: Feed page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedResponse"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /leaderboards:
+    get:
+      operationId: getLeaderboard
+      tags: [leaderboards]
+      summary: Get a Leaderboard
+      description: |
+        Returns up to the top 100 entries for the requested rolling window
+        and scope. Members-only: Scans without a Member account are omitted.
+        Equal scores break ties by earlier creation time first.
+        `Cache-Control: public, max-age=10, s-maxage=30`.
+      parameters:
+        - name: window
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/LeaderboardWindow"
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/LeaderboardScope"
+      responses:
+        "200":
+          description: Leaderboard page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaderboardResponse"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /profiles/{username}:
+    get:
+      operationId: getProfile
+      tags: [profiles]
+      summary: Get a public Profile
+      description: |
+        Returns the public Profile header (username, avatar initials,
+        aggregates) plus the first page of scan history (20 entries, newest
+        first). 404 when the username does not match an existing Member.
+      parameters:
+        - $ref: "#/components/parameters/Username"
+      responses:
+        "200":
+          description: Profile found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /profiles/{username}/scans:
+    get:
+      operationId: getProfileScans
+      tags: [profiles]
+      summary: Get a Profile's scan history page
+      description: |
+        Cursor-paginated scan history for a Member's public Profile, ordered
+        by `createdAt DESC`.
+      parameters:
+        - $ref: "#/components/parameters/Username"
+        - name: cursor
+          in: query
+          required: false
+          description: ISO 8601 timestamp; entries strictly older than this are returned
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size (default 20, max 20)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+      responses:
+        "200":
+          description: Profile scan history page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileScansResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [me]
+      summary: Get the current Member
+      description: |
+        Returns the current Member, today's daily-quota state, and any
+        claim-eligible unclaimed Scan IDs that match the caller's anon
+        session cookie. When the authenticated user has not yet chosen a
+        username, `member` is null and `needsUsername` is true.
+      responses:
+        "200":
+          description: Current Member state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      operationId: deleteMe
+      tags: [me]
+      summary: Delete the current Member account
+      description: |
+        Permanently purges the Member's Scans, images, likes, and account
+        record. Requires an authenticated Member.
+      responses:
+        "204":
+          description: Account deleted
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /me/username:
+    post:
+      operationId: setMyUsername
+      tags: [me]
+      summary: Set the current Member's username
+      description: |
+        First-sign-in step. Validates the chosen username against
+        `^[a-z0-9_]{3,20}$` and case-insensitive uniqueness. On success the
+        Member row is created and the username becomes immutable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetUsernameRequest"
+      responses:
+        "200":
+          description: Username saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetUsernameResponse"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: Username already taken
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorInvalidInput"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+
 components:
+  parameters:
+    ScanId:
+      name: id
+      in: path
+      required: true
+      description: Scan UUID
+      schema:
+        type: string
+        format: uuid
+    Username:
+      name: username
+      in: path
+      required: true
+      description: Member username (lowercase, 3..20 chars)
+      schema:
+        type: string
+        pattern: "^[a-z0-9_]{3,20}$"
+        minLength: 3
+        maxLength: 20
+
+  responses:
+    InvalidInput:
+      description: Request payload failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorInvalidInput"
+    Unauthenticated:
+      description: Caller is not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorUnauthenticated"
+    Forbidden:
+      description: Caller is not permitted to access the resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorForbidden"
+    NotFound:
+      description: Resource does not exist or has been expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorNotFound"
+    RateLimited:
+      description: Caller exceeded a rate limit
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorRateLimited"
+    Internal:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorInternal"
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +540,724 @@ components:
       required:
         - status
 
+    Category:
+      type: string
+      description: Scan Category. Determines the five Category Stats.
+      enum:
+        - SETUPS
+        - FITNESS
+        - DRIP
+        - PETS
+        - RIDES
+        - WILDCARD
+
+    Tier:
+      type: string
+      description: Tier bucket derived from the final Score.
+      enum:
+        - D
+        - C
+        - B
+        - A
+        - S
+        - SS
+        - SSS
+        - LIMITLESS
+
+    AnomalyType:
+      type: string
+      description: Rare reveal event assigned to some Scans. At most one per Scan.
+      enum:
+        - POWER_SURGE_DETECTED
+        - FORBIDDEN_AURA
+        - SCOUTER_FAILURE
+        - UNREGISTERED_ENERGY
+        - CHAOS_SPIKE
+
+    RevealVariant:
+      type: string
+      description: Client reveal variant the web client must play. 1:1 with `AnomalyType` (plus `standard` when no anomaly).
+      enum:
+        - standard
+        - power_surge
+        - forbidden_aura
+        - scouter_failure
+        - unregistered_energy
+        - chaos_spike
+
+    ShareCardRatio:
+      type: string
+      description: Share-card aspect ratio.
+      enum:
+        - story
+        - square
+        - landscape
+
+    LeaderboardWindow:
+      type: string
+      enum:
+        - today
+        - week
+        - all
+
+    LeaderboardScope:
+      type: string
+      description: Leaderboard scope. `global` mixes all Categories; the others filter to a single Category.
+      enum:
+        - global
+        - setups
+        - fitness
+        - drip
+        - pets
+        - rides
+        - wildcard
+
+    CoreStats:
+      type: object
+      description: The four Core Stats present on every Scan, each in the inclusive range 0..10000.
+      additionalProperties: false
+      properties:
+        aura:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        power:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        status:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        threat:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      required: [aura, power, status, threat]
+
+    CategoryStats:
+      type: object
+      description: |
+        The five Category-specific stats produced for a Scan, each in the inclusive
+        range 0..10000. Keys depend on the Scan's Category and are stable per
+        Category (see design.md "Per-Category Stats"). Object has exactly five keys.
+      additionalProperties:
+        type: integer
+        minimum: 0
+        maximum: 10000
+
+    ShareCardUrls:
+      type: object
+      description: Absolute URLs for the three share-card aspect ratios.
+      additionalProperties: false
+      properties:
+        story:
+          type: string
+          format: uri
+        square:
+          type: string
+          format: uri
+        landscape:
+          type: string
+          format: uri
+      required: [story, square, landscape]
+
+    ScanPublic:
+      type: object
+      description: Public projection of a Scan, returned by Feed, Permalink, and Profile endpoints.
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: [string, "null"]
+          description: Member username, or null when the Scan is unclaimed (anonymous).
+          pattern: "^[a-z0-9_]{3,20}$"
+        category:
+          $ref: "#/components/schemas/Category"
+        score:
+          type: integer
+          minimum: 1000
+          maximum: 100000
+        tier:
+          $ref: "#/components/schemas/Tier"
+        verdictNoun:
+          type: string
+          description: Verdict noun selected from the tier pool.
+          minLength: 1
+        coreStats:
+          $ref: "#/components/schemas/CoreStats"
+        categoryStats:
+          $ref: "#/components/schemas/CategoryStats"
+        commentary:
+          type: string
+          description: Final commentary line, 8..14 words inclusive.
+          minLength: 1
+        description:
+          type: [string, "null"]
+          description: Sanitized user-supplied description, ≤ 120 chars; null when absent.
+          maxLength: 120
+        anomaly:
+          oneOf:
+            - $ref: "#/components/schemas/AnomalyType"
+            - type: "null"
+        imageUrl:
+          type: string
+          format: uri
+          description: Signed URL for the processed image (≤ 24 h validity).
+        thumbnailUrl:
+          type: string
+          format: uri
+          description: Signed URL for the 480px thumbnail (≤ 24 h validity).
+        createdAt:
+          type: string
+          format: date-time
+        permalink:
+          type: string
+          format: uri
+          description: Absolute URL of the Scan permalink (`/scan/{id}`).
+        shareCardUrls:
+          $ref: "#/components/schemas/ShareCardUrls"
+        likeCount:
+          type: integer
+          minimum: 0
+        likedByMe:
+          type: boolean
+      required:
+        - id
+        - username
+        - category
+        - score
+        - tier
+        - verdictNoun
+        - coreStats
+        - categoryStats
+        - commentary
+        - description
+        - anomaly
+        - imageUrl
+        - thumbnailUrl
+        - createdAt
+        - permalink
+        - shareCardUrls
+        - likeCount
+        - likedByMe
+
+
+    CreateAnonSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        fingerprint:
+          type: string
+          description: Hash of stable browser signals (no IP).
+          minLength: 8
+          maxLength: 256
+        localTz:
+          type: [string, "null"]
+          description: IANA timezone reported by the client. Optional.
+      required: [fingerprint]
+
+    AnonDailyQuota:
+      type: object
+      additionalProperties: false
+      description: Daily-quota state for an Anonymous User keyed by local-day.
+      properties:
+        used:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          description: Anonymous limit per visitor per local-day (1).
+        resetAt:
+          type: string
+          format: date-time
+          description: Start of the visitor's next local-day.
+      required: [used, limit, resetAt]
+
+    CreateAnonSessionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        anonSessionId:
+          type: string
+          format: uuid
+        dailyQuota:
+          $ref: "#/components/schemas/AnonDailyQuota"
+      required: [anonSessionId, dailyQuota]
+
+    CreateScanRequest:
+      type: object
+      description: Multipart/form-data payload for creating a Scan.
+      additionalProperties: false
+      properties:
+        image:
+          type: string
+          format: binary
+          description: Image bytes. JPEG, PNG, HEIC, or WebP. ≤ 8 MB. Shorter edge ≥ 256 px.
+        category:
+          $ref: "#/components/schemas/Category"
+        description:
+          type: string
+          description: Optional user-supplied description (≤ 120 chars). Sanitized server-side.
+          maxLength: 120
+        localDate:
+          type: string
+          description: Visitor's local date in `YYYY-MM-DD` format. Used for the anonymous daily-limit window.
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        localTz:
+          type: string
+          description: IANA timezone string (optional, refines the anonymous daily window).
+      required: [image, category, localDate]
+
+    CreateScanRevealHints:
+      type: object
+      description: Reveal-sync hints returned alongside a created Scan.
+      additionalProperties: false
+      properties:
+        serverElapsedMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds elapsed in the pipeline before the response was emitted.
+        revealVariant:
+          $ref: "#/components/schemas/RevealVariant"
+      required: [serverElapsedMs, revealVariant]
+
+    CreateScanResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        scan:
+          $ref: "#/components/schemas/ScanPublic"
+        reveal:
+          $ref: "#/components/schemas/CreateScanRevealHints"
+      required: [scan, reveal]
+
+    ClaimScanResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        scan:
+          $ref: "#/components/schemas/ScanPublic"
+      required: [scan]
+
+    ToggleLikeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        liked:
+          type: boolean
+        likeCount:
+          type: integer
+          minimum: 0
+      required: [liked, likeCount]
+
+    FeedResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        entries:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ScanPublic"
+        nextCursor:
+          type: [string, "null"]
+          format: date-time
+          description: Cursor for the next page; null when there are no more entries.
+      required: [entries, nextCursor]
+
+    LeaderboardEntry:
+      type: object
+      description: |
+        A single Leaderboard row. The Leaderboard projection exposes only this
+        exact field set per Requirement 10.6 — never email, account id, or any
+        field beyond those listed below.
+      additionalProperties: false
+      properties:
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 100
+        scanId:
+          type: string
+          format: uuid
+        username:
+          type: string
+          pattern: "^[a-z0-9_]{3,20}$"
+          description: Member username (Leaderboard is Members-only, so always non-null).
+        category:
+          $ref: "#/components/schemas/Category"
+        score:
+          type: integer
+          minimum: 1000
+          maximum: 100000
+        tier:
+          $ref: "#/components/schemas/Tier"
+        anomaly:
+          oneOf:
+            - $ref: "#/components/schemas/AnomalyType"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        permalink:
+          type: string
+          format: uri
+      required:
+        - rank
+        - scanId
+        - username
+        - category
+        - score
+        - tier
+        - anomaly
+        - createdAt
+        - permalink
+
+    LeaderboardResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        window:
+          $ref: "#/components/schemas/LeaderboardWindow"
+        scope:
+          type: string
+          description: Echo of the request scope. `GLOBAL` for the all-Categories board, otherwise the matching `Category`.
+          enum:
+            - GLOBAL
+            - SETUPS
+            - FITNESS
+            - DRIP
+            - PETS
+            - RIDES
+            - WILDCARD
+        entries:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/LeaderboardEntry"
+        computedAt:
+          type: string
+          format: date-time
+      required: [window, scope, entries, computedAt]
+
+    ProfileAggregates:
+      type: object
+      additionalProperties: false
+      properties:
+        highestScore:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        totalScans:
+          type: integer
+          minimum: 0
+        highestTier:
+          $ref: "#/components/schemas/Tier"
+      required: [highestScore, totalScans, highestTier]
+
+    ProfilePublic:
+      type: object
+      description: Public Profile projection.
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          pattern: "^[a-z0-9_]{3,20}$"
+        avatarInitials:
+          type: string
+          minLength: 1
+          maxLength: 2
+          description: First letter of the username, uppercase.
+        aggregates:
+          $ref: "#/components/schemas/ProfileAggregates"
+      required: [username, avatarInitials, aggregates]
+
+    ProfileResponse:
+      type: object
+      description: Public Profile header plus the first page of scan history.
+      additionalProperties: false
+      properties:
+        profile:
+          $ref: "#/components/schemas/ProfilePublic"
+        scans:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ScanPublic"
+        nextCursor:
+          type: [string, "null"]
+          format: date-time
+      required: [profile, scans, nextCursor]
+
+    ProfileScansResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        entries:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ScanPublic"
+        nextCursor:
+          type: [string, "null"]
+          format: date-time
+      required: [entries, nextCursor]
+
+    MemberDailyQuota:
+      type: object
+      additionalProperties: false
+      description: Member daily-quota state keyed by UTC day.
+      properties:
+        used:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          description: Member limit per UTC day (25).
+        resetAt:
+          type: string
+          format: date-time
+          description: Next UTC midnight.
+      required: [used, limit, resetAt]
+
+    MemberPublic:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          pattern: "^[a-z0-9_]{3,20}$"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, username, createdAt]
+
+    MeResponse:
+      type: object
+      additionalProperties: false
+      description: |
+        Current Member state. When the authenticated user has not yet chosen a
+        username, `member` is null and `needsUsername` is true.
+      properties:
+        member:
+          oneOf:
+            - $ref: "#/components/schemas/MemberPublic"
+            - type: "null"
+        needsUsername:
+          type: boolean
+        dailyQuota:
+          $ref: "#/components/schemas/MemberDailyQuota"
+        claimableScanIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Unclaimed Scan IDs that match the caller's anon session cookie.
+      required: [member, needsUsername, dailyQuota, claimableScanIds]
+
+    SetUsernameRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          pattern: "^[a-z0-9_]{3,20}$"
+          minLength: 3
+          maxLength: 20
+      required: [username]
+
+    SetUsernameResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        member:
+          $ref: "#/components/schemas/MemberPublic"
+      required: [member]
+
+
+    ApiErrorInvalidInput:
+      type: object
+      description: Request payload failed validation.
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [INVALID_INPUT]
+        message:
+          type: string
+        field:
+          type: string
+          description: Optional name of the offending field.
+        rule:
+          type: string
+          description: Optional name of the violated rule (e.g. `length`, `chars`, `uniqueness`).
+      required: [code, message]
+
+    ApiErrorUnauthenticated:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [UNAUTHENTICATED]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiErrorForbidden:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [FORBIDDEN]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiErrorNotFound:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [NOT_FOUND]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiErrorRateLimited:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [RATE_LIMITED]
+        message:
+          type: string
+        retryAfterSec:
+          type: integer
+          minimum: 0
+      required: [code, message, retryAfterSec]
+
+    ApiErrorDailyLimitReached:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [DAILY_LIMIT_REACHED]
+        message:
+          type: string
+        resetAt:
+          type: string
+          format: date-time
+          description: Next reset time (visitor's next local-day for anonymous, next UTC midnight for Member).
+      required: [code, message, resetAt]
+
+    ApiErrorModerationRejected:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [MODERATION_REJECTED]
+        message:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+          description: Moderation categories triggered (e.g. `Explicit Nudity`, `Violence`, `Hate Symbols`).
+      required: [code, message, categories]
+
+    ApiErrorModerationUnavailable:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [MODERATION_UNAVAILABLE]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiErrorImageInvalid:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [IMAGE_INVALID]
+        message:
+          type: string
+        reason:
+          type: string
+          enum: [size, format, dimensions, mime_mismatch]
+      required: [code, message, reason]
+
+    ApiErrorVisionUnavailable:
+      type: object
+      description: |
+        Surfaces when the Vision Model is unrecoverable for this request.
+        On the standard Scanner pipeline the failure path falls through to a
+        SCOUTER_FAILURE neutral fallback rather than returning this error;
+        this code exists for future explicit handling and documentation.
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [VISION_UNAVAILABLE]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiErrorInternal:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [INTERNAL]
+        message:
+          type: string
+      required: [code, message]
+
+    ApiError:
+      description: |
+        Discriminated union of every API error shape. Clients render copy
+        keyed off `code`, never off `message`.
+      oneOf:
+        - $ref: "#/components/schemas/ApiErrorInvalidInput"
+        - $ref: "#/components/schemas/ApiErrorUnauthenticated"
+        - $ref: "#/components/schemas/ApiErrorForbidden"
+        - $ref: "#/components/schemas/ApiErrorNotFound"
+        - $ref: "#/components/schemas/ApiErrorRateLimited"
+        - $ref: "#/components/schemas/ApiErrorDailyLimitReached"
+        - $ref: "#/components/schemas/ApiErrorModerationRejected"
+        - $ref: "#/components/schemas/ApiErrorModerationUnavailable"
+        - $ref: "#/components/schemas/ApiErrorImageInvalid"
+        - $ref: "#/components/schemas/ApiErrorVisionUnavailable"
+        - $ref: "#/components/schemas/ApiErrorInternal"
+      discriminator:
+        propertyName: code
+        mapping:
+          INVALID_INPUT: "#/components/schemas/ApiErrorInvalidInput"
+          UNAUTHENTICATED: "#/components/schemas/ApiErrorUnauthenticated"
+          FORBIDDEN: "#/components/schemas/ApiErrorForbidden"
+          NOT_FOUND: "#/components/schemas/ApiErrorNotFound"
+          RATE_LIMITED: "#/components/schemas/ApiErrorRateLimited"
+          DAILY_LIMIT_REACHED: "#/components/schemas/ApiErrorDailyLimitReached"
+          MODERATION_REJECTED: "#/components/schemas/ApiErrorModerationRejected"
+          MODERATION_UNAVAILABLE: "#/components/schemas/ApiErrorModerationUnavailable"
+          IMAGE_INVALID: "#/components/schemas/ApiErrorImageInvalid"
+          VISION_UNAVAILABLE: "#/components/schemas/ApiErrorVisionUnavailable"
+          INTERNAL: "#/components/schemas/ApiErrorInternal"
